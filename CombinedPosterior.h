@@ -60,14 +60,16 @@ namespace cbl {
      /// shared pointers vector containing Posterior objects
      std::vector<std::shared_ptr<Posterior>> m_posteriors;
 
+     std::vector<std::vector<double>> m_log_posteriors;
+
      /// number of posteriors
      int m_Nposteriors;
 
+     /// importance sampling mode
+     bool impsampling = false;
+
      /// the prior distributions
    	 std::vector<std::shared_ptr<cbl::statistics::Prior>> m_priors;
-
-     /// the loglikelihood distributions
-     std::vector<std::vector<double>> m_log_likelihoods;
 
      /// likelihood inputs
      std::vector<std::shared_ptr<void>> m_likelihood_inputs;
@@ -117,19 +119,8 @@ namespace cbl {
   /**
 	 *  @brief constructor
 	 *
-	 *  @param posteriorA
-	 *
-   *  @param posteriorB
+	 *  @param posteriors pointer containing Posterior objects
    *
-	 *  @param usecols
-	 *
-	 *  @param cut_sigma
-	 *
-   *  @param distNum
-   *
-   *  @param cell_size
-   *
-   *  @param rMAX
    */
   CombinedPosterior (const std::vector<std::shared_ptr<Posterior>> posteriors);
 
@@ -147,9 +138,9 @@ namespace cbl {
    * @brief set the interal values of m_log_posterior as the concatenation
    * of the logposterior vectors of two cosmological chains
    *
-   * @param posteriorA the first logposterior distribution
+   * @param logpostA the first logposterior distribution
    *
-   * @param posteriorB the second logposterior distribution
+   * @param logpostB the second logposterior distribution
    *
    */
   void set_log_posterior(const std::vector<double> logpostA, const std::vector<double> logpostB);
@@ -158,12 +149,24 @@ namespace cbl {
    * @brief set the interal values of m_parameters as the concatenation
    * of the parameters vectors of two cosmological chains
    *
-   * @param posteriorA the first parameter vector
+   * @param parametersA the first parameters vector
    *
-   * @param posteriorB the second parameter vector
+   * @param parametersB the second parameter vector
    *
    */
   void set_parameters(const std::vector<std::vector<double>> parametersA, const std::vector<std::vector<double>> parametersB);
+
+  /**
+   * @brief set the interal values of m_weight as the concatenation
+   * of the weights vectors of two MCMC chains
+   *
+   * @param weightsA the first weights vector
+   *
+   * @param weightsB the second weights vector
+   *
+   */
+  void set_weight(const std::vector<double> weightsA, const std::vector<double> weightsB);
+
 
   /**
    * @brief set all the interal variables needed to combined Posterior objects that are
@@ -173,7 +176,7 @@ namespace cbl {
   void set_all();
 
   /**
-   * @brief do the importance sampling for two Posterior objects
+   * @brief do the importance sampling for two Posterior objects, which has been read externally
    *
    * @param distNum number of points for the averaging
    *
@@ -184,8 +187,24 @@ namespace cbl {
    * @param cut_sigma for the weight's distribution cut
    *
    */
-  void importance_sampling(const int distNum, const double cell_size, const double rMAX, const double cut_sigma);
+  void importance_sampling(const int distNum, const double cell_size, const double rMAX, const double cut_sigma=-1);
 
+  /**
+   * @brief do the importance sampling for two Posterior objects, that are constructed
+   * from dataset and models
+   *
+   * @param output_path the path where the chains will be stored
+   *
+   * @param model_nameA the name of the first model
+   *
+   * @param model_nameB the name of the second model
+   *
+   * @param chain_size the size of the chains that has to be ran
+   *
+   * @param nwalkers the number of parallal walkers for the chain
+   *
+   */
+  void importance_sampling(const std::string output_path, const std::string model_nameA, const std::string model_nameB, const std::vector<double> start, const int chain_size, const int nwalkers, const int burn_in=0, const int thin=1);
 
 
   /**
@@ -197,22 +216,6 @@ namespace cbl {
    *
    */
   void write_chains(const std::string output_dir, const std::string output_file);
-
-  /**
-	 * @brief initialize the chains by drawing from the prior
-	 * distributions
-	 *
-	 * the starting values of the chain are extracted from the
-	 * (possibly different) distributions of the priors
-	 *
-	 * @param chain_size the chain lenght
-	 *
-	 * @param n_walkers the number of parallel
-	 * chains
-	 *
-	 *
-	 */
-	void initialize_chains (const int chain_size, const int n_walkers);
 
 	/**
 	 * @brief initialize the chains in a ball around the posterior
@@ -245,63 +248,6 @@ namespace cbl {
 	 *
 	 */
 	void initialize_chains (const int chain_size, const int n_walkers, const double radius, const std::vector<double> start, const unsigned int max_iter=10000, const double tol=1.e-6, const double epsilon=1.e-3);
-
-	/**
-	 * @brief initialize the chains in a ball around the input
-	 * parameter values
-	 *
-	 * the starting values of the chain are extracted from uniform
-	 * distributions in the range [value[i]-radius,
-	 * value[i]+radius] (for each i-th likelihood parameter)
-	 *
-	 * @param chain_size the chain lenght
-	 *
-	 * @param n_walkers the number of parallel
-	 * chains
-	 *
-	 * @param value vector containing the input values, centres of
-	 * the ball in the parameter space
-	 *
-	 * @param radius radius of the ball in the parameter space
-	 *
-	 *
-	 */
-	void initialize_chains (const int chain_size, const int n_walkers, std::vector<double> &value, const double radius);
-
-	/**
-	 * @brief initialize the chains with input values
-	 *
-	 * the starting values of the chain are the elements of the
-	 * input matrix 'chain_values'
-	 *
-	 * @param chain_size the chain lenght
-	 *
-	 * @param chain_value matrix of size (n_walkers,
-	 * n_parameters), starting values of the chain
-	 *
-	 *
-	 */
-	void initialize_chains (const int chain_size, const std::vector<std::vector<double>> chain_value);
-
-	/**
-	 * @brief initialize the chains reading from an input file
-	 *
-	 * the starting values of the chain are get from the last
-	 * lines of an input chain file; it can be used to continue an
-	 * MCMC sampling computation
-	 *
-	 * @param chain_size the chain lenght
-	 *
-	 * @param n_walkers the number of parallel
-	 * chains
-	 *
-	 * @param input_dir the input directory
-	 *
-	 * @param input_file the input file
-	 *
-	 *
-	 */
-	void initialize_chains (const int chain_size, const int n_walkers, const std::string input_dir, const std::string input_file);
 
   /**
    *  @brief sample the posterior using the stretch-move sampler
@@ -489,6 +435,57 @@ namespace cbl {
   void write_results (const std::string output_dir, const std::string root_file, const int start=0, const int thin=1, const int nbins=50, const bool fits=false, const bool compute_mode=false, const int ns=-1, const int nb=-1);
 
   /**
+   * @brief show the results of the MCMC combination on the screen.
+   *
+   * In the case of the sum of logPosteriors:
+   *
+   * if the covariance matrix has been estimated from a set of
+   * mock catalogues, and the input parameters ns (number of
+   * samples used to estimate the covariance matrix) and nb
+   * (number of data measurements, e.g. the bins of the dataset)
+   * are provided (>0), then the parameter errors
+   * (\f$\sigma_p\f$) will be corrected to take into account the
+   * uncertainities in the covariance estimate (Percival et
+   * al. 2014):
+   *
+   * \f[ \sigma_p = \sqrt{\frac{1+B(n_b-n_p)}{1+A+B(n_p+1)}} \f]
+   *
+   * where
+   *
+   * \f[ A = \frac{2}{(n_s-n_b-1)(n_s-n_b-4)} \,, \f]
+   *
+   * \f[ B = \frac{(n_s-n_b-2)}{(n_s-n_b-1)(n_s-n_b-4)} \,. \f]
+   *
+   * this correction can be applied only if the likelihood is
+   * Gaussian. Morever, the inverce covariance matrix estimator
+   * has to be corrected to take into account the inverse
+   * Wishart distribution (Hartlap, Simon and Schneider 2006).
+   *
+   * In the case of importance sampling:
+   *
+   * The weighted average of the chains parameters are shown.
+   *
+   * @param start the minimum chain position to be written
+   *
+   * @param thin the step used for dilution on screen
+   *
+   * @param nbins the number of bins to estimate the posterior
+   * distribution, used to assess its properties
+   *
+   * @param show_mode true \f$\rightarrow\f$ show the posterior
+   * mode; false \f$\rightarrow\f$ do not show the posterior
+   * mode
+   *
+   * @param ns number of samples used to estimate the covariance
+   * matrix
+   *
+   * @param nb number of data measurements, e.g. the bins of the
+   * dataset
+   *
+   *
+   */
+  void show_results (const int start, const int thin, const int nbins=50, const bool show_mode=false, const int ns=-1, const int nb=-1);
+  /**
    * @brief write the chains obtained after
    * the MCMC sampling
    *
@@ -569,13 +566,25 @@ namespace cbl {
   /**
    * @brief write maximization results on a file
    *
-   * @param output_dir the output directory
+   * @param dir_output the output directory
    *
-   * @param root_file the root of the output file to be written
+   * @param file the name of the output file to be written
    *
    *
    */
   void write_maximization_results (const std::string dir_output, const std::string file);
+
+  /**
+   * @brief read an entire 2d table data (MCMC chain) of unknown dimension
+   *
+   * @param path the path in which the file is stored
+   *
+   * @param filename the name of the file that has to be read
+   *
+   * @return two-dimensional vector containing all the read data
+   */
+  std::vector<std::vector<double>> read (const std::string path, const std::string filename);
+
 
     };
   }

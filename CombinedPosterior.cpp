@@ -49,34 +49,48 @@ cbl::statistics::CombinedPosterior::CombinedPosterior (const std::vector<std::sh
 
   m_posteriors = posteriors;
   m_Nposteriors = m_posteriors.size();
+  int n_ext_chains = 0;
   std::vector<bool> is_from_chain(m_Nposteriors);
 
   // eventualmente dentro una funzione che controlla e setta is_from_chain
   for(int N=0; N<m_Nposteriors; N++)
-  {
     if(m_posteriors[N]->m_get_seed() != -1) is_from_chain[N] = true;
     else is_from_chain[N] = false;
-  }
 
   if(std::find(is_from_chain.begin(), is_from_chain.end(), false) == is_from_chain.end())   // All false
-  {
-    coutCBL << "All of the Posteriors given are constructed from chain" << endl;
     set_all();
-  }
   else if (std::find(is_from_chain.begin(), is_from_chain.end(), true) == is_from_chain.end()) // All true
   {
-    coutCBL << "All of the Posteriors given are read from external chains" << endl;
+    impsampling = true;
     for(int N=1; N<m_Nposteriors; N++)
       if(m_posteriors[N]->get_Nparameters()!=m_posteriors[0]->get_Nparameters())
         ErrorCBL("Different number of parameters for the combination", "CombinedPosterior", "CombinedPosterior.cpp");
     m_Nparameters = m_posteriors[0]->get_Nparameters();
+    m_model_parameters = m_posteriors[0]->get_model_parameters();
   }
 
   // at least one is false
-  else ErrorCBL("Different kind of Posterior objects given as input!", "CombinedPosterior", "CombinedPosterior.cpp");
+  else {
+    coutCBL << "Different kind of Posterior objects given as input!" << endl;
 
+      if(m_Nposteriors>2) ErrorCBL("Not yet implemented with more than 2 mixed probes", "CombinedPosterior", "CombinedPosterior.cpp");
+
+    m_log_posteriors.resize(n_ext_chains);
+
+    for(int N=0; N<m_Nposteriors; N++)
+      if(!is_from_chain[N]){
+        m_Nparameters = m_posteriors[N]->get_Nparameters();
+        m_model_parameters = m_posteriors[N]->get_model_parameters();
+        m_log_posterior = m_posteriors[N]->get_log_posterior();
+      }
+      else
+      {
+        m_seeds[N] = m_posteriors[N]->m_get_seed();
+        m_use_grid[N] = m_posteriors[N]->get_m_use_grid();
+
+      }
 }
-
+}
 
 
 // ============================================================================================
@@ -113,6 +127,7 @@ void cbl::statistics::CombinedPosterior::set_all()
   }
 
   m_model_parameters = m_model_Parameters[0];
+  m_Nparameters = m_model_parameters->nparameters();
   m_seed = m_seeds[0];
   m_set_seed(m_seed);
 
@@ -124,11 +139,13 @@ void cbl::statistics::CombinedPosterior::set_all()
 
 void cbl::statistics::CombinedPosterior::set_parameters(const std::vector<std::vector<double>> parametersA, const std::vector<std::vector<double>> parametersB)
 {
-  //m_log_posterior.erase(m_log_posterior.begin(), m_log_posterior.end());
-  m_parameters.reserve(parametersA.size() + parametersB.size()); // preallocate memory
-  m_parameters.insert(m_parameters.end(), parametersA.begin(), parametersA.end());
-  m_parameters.insert(m_parameters.end(), parametersB.begin(), parametersB.end());
-
+  std::vector<std::vector<double>> parameters (m_Nparameters);
+  for(int N=0; N<m_Nparameters; N++){
+    parameters[N].insert(parameters[N].end(), parametersA[N].begin(), parametersA[N].end());
+    parameters[N].insert(parameters[N].end(), parametersB[N].begin(), parametersB[N].end());
+  }
+  m_parameters = parameters;
+  parameters.clear();
 }
 
 
@@ -137,16 +154,24 @@ void cbl::statistics::CombinedPosterior::set_parameters(const std::vector<std::v
 
 void cbl::statistics::CombinedPosterior::set_log_posterior(const std::vector<double> logpostA, const std::vector<double> logpostB)
 {
-  //m_log_posterior.erase(m_log_posterior.begin(), m_log_posterior.end());
   m_log_posterior.reserve(logpostA.size() + logpostB.size()); // preallocate memory
   m_log_posterior.insert(m_log_posterior.end(), logpostA.begin(), logpostA.end());
   m_log_posterior.insert(m_log_posterior.end(), logpostB.begin(), logpostB.end());
-
 }
 
 
 // ============================================================================================
 
+void cbl::statistics::CombinedPosterior::set_weight(const std::vector<double> weightsA, const std::vector<double> weightsB)
+{
+
+  m_weight.reserve(weightsA.size() + weightsB.size()); // preallocate memory
+  m_weight.insert(m_weight.end(), weightsA.begin(), weightsA.end());
+  m_weight.insert(m_weight.end(), weightsB.begin(), weightsB.end());
+
+}
+
+// ============================================================================================
 
 void cbl::statistics::CombinedPosterior::importance_sampling(const int distNum, const double cell_size, const double rMAX, const double cut_sigma)
 {
@@ -193,8 +218,7 @@ void cbl::statistics::CombinedPosterior::importance_sampling(const int distNum, 
      if(weights_B[ii]>mean_B+cut_sigma*sigma_B) weights_B[ii] = mean_B;
  }
 
-  m_weight.insert(m_weight.end(), weights_A.begin(), weights_A.end());
-  m_weight.insert(m_weight.end(), weights_B.begin(), weights_B.end());
+  set_weight(weights_A, weights_B);
 
 }
 
@@ -202,36 +226,63 @@ void cbl::statistics::CombinedPosterior::importance_sampling(const int distNum, 
 // ============================================================================================
 
 
-void cbl::statistics::CombinedPosterior::write_chains(const std::string output_dir, const std::string output_file)
-{
-  std::ofstream out(output_dir+output_file, ios::trunc);
+void cbl::statistics::CombinedPosterior::importance_sampling(const std::string output_path, const std::string model_nameA, const std::string model_nameB, const std::vector<double> start, const int chain_size, const int nwalkers, const int burn_in, const int thin){
 
-  coutCBL << "Writing chains in " << output_dir+output_file << endl;
+  if(m_Nposteriors != 2) ErrorCBL("You can't do importance sampling for a number of probes > 2", "importance_sampling", "CombinedPosterior.cpp");
 
-  if(out.is_open()){
-    out << "#steps_MCMC #parameters #logPost #importance_weights" << endl;  // da cambiare
-    for(size_t ii=0; ii<m_weight.size(); ii++)
-    {
-      out << ii << " ";
-      for(int N=0; N<m_Nparameters; N++){
-        out << m_parameters[N][ii] << " ";
-      }
-      out << m_log_posterior[ii] << " " << m_weight[ii] << endl;
+  std::vector<std::string> modelnames(m_Nposteriors);
+  modelnames[0] = model_nameA;
+  modelnames[1] = model_nameB;
+
+  std::string file_AB = model_nameA+"_post_"+model_nameB;
+  std::string file_BA = model_nameB+"_post_"+model_nameA;
+
+  for(int N=0; N<m_Nposteriors; N++){
+    m_posteriors[N]->initialize_chains(chain_size, nwalkers, 1.e-5, start);
+    coutCBL << "Sampling the posterior distribution for " << modelnames[N] << endl << endl;
+    m_posteriors[N]->sample_stretch_move(2);
+    m_posteriors[N]->write_results(output_path, modelnames[N]);
+    coutCBL << endl;
+    cout << "Showing results for " << modelnames[N] << endl << endl;
+    m_posteriors[N]->show_results(burn_in, thin);
+    std::cout << endl << endl;
+  }
+
+  coutCBL << "Do the importance sampling for " << modelnames[0] << "_post_" << modelnames[1] << ".." << endl;
+  m_posteriors[0]->importance_sampling(output_path, modelnames[1]+"_chain.dat");
+  coutCBL << "Showing results of the importance sampling.." << endl;
+  m_posteriors[0]->show_results(burn_in, thin);
+  m_posteriors[0]->write_results(output_path, file_AB);
+  coutCBL << "Do the importance sampling for " << modelnames[1] << "_post_" << modelnames[0] << ".." << endl;
+  m_posteriors[1]->importance_sampling(output_path, modelnames[0]+"_chain.dat");
+  coutCBL << "Showing results of the importance sampling.." << endl;
+  m_posteriors[1]->write_results(output_path, file_BA);
+  m_posteriors[1]->show_results(burn_in, thin);
+
+  std::vector<std::vector<double>> chainA;
+  std::vector<std::vector<double>> chainB;
+  std::vector<double> weightsAB = m_posteriors[0]->weight();
+  std::vector<double> weightsBA = m_posteriors[1]->weight();
+
+  std::vector<std::vector<double>> parametersA (m_Nparameters, std::vector<double> (chain_size*nwalkers));
+  std::vector<std::vector<double>> parametersB (m_Nparameters, std::vector<double> (chain_size*nwalkers));
+
+  chainA = read(output_path, file_AB+"_chain.dat");
+  chainB = read(output_path, file_BA+"_chain.dat");
+
+  for(int N=1; N<m_Nparameters+1; N++){
+    for(size_t ii=0; ii<chainA.size(); ii++){
+      parametersA[N-1][ii] = chainA[ii][N];
+      parametersB[N-1][ii] = chainB[ii][N];
     }
   }
 
-  out.close();
+  set_log_posterior(m_posteriors[0]->get_log_posterior(), m_posteriors[1]->get_log_posterior());
+  set_parameters(parametersA, parametersB);
+  set_weight(weightsAB, weightsBA);
 
-}
+  impsampling = true;
 
-
-// ============================================================================================
-
-
-void cbl::statistics::CombinedPosterior::initialize_chains (const int chain_size, const int n_walkers)
-{
-    m_model_parameters->set_chain(chain_size, n_walkers);
-    m_model_parameters->initialize_chain_from_prior();
 }
 
 
@@ -243,68 +294,6 @@ void cbl::statistics::CombinedPosterior::initialize_chains (const int chain_size
   maximize(start, max_iter, tol, epsilon);
   m_model_parameters->set_chain(chain_size, n_walkers);
   m_model_parameters->initialize_chain_ball_bestfit(radius, m_generate_seed());
-}
-
-
-// ============================================================================================
-
-
-void cbl::statistics::CombinedPosterior::initialize_chains (const int chain_size, const int n_walkers, std::vector<double> &value, const double radius)
-{
-  m_model_parameters->set_chain(chain_size, n_walkers);
-  m_model_parameters->initialize_chain_ball(value, radius, m_generate_seed());
-}
-
-
-// ============================================================================================
-
-
-void cbl::statistics::CombinedPosterior::initialize_chains (const int chain_size, const std::vector<std::vector<double>> chain_value)
-{
-  const int n_walkers = chain_value[0].size();
-  m_model_parameters->set_chain(chain_size, n_walkers);
-
-  for (size_t pp=0; pp<m_model_parameters->nparameters(); pp++)
-    for (int ww=0; ww<n_walkers; ww++)
-      m_model_parameters->set_chain_value(pp, 0, ww, chain_value[pp][ww]);
-}
-
-
-// ============================================================================================
-
-
-void cbl::statistics::CombinedPosterior::initialize_chains (const int chain_size, const int n_walkers, const std::string input_dir, const std::string input_file)
-{
-  string last_step_file = input_dir+input_file+"_LastStep";
-  string get_last_step = "tail -n "+conv(n_walkers, par::fINT)+" "+input_dir+input_file+" > "+last_step_file;
-  if (system(get_last_step.c_str())) {}
-
-  ifstream fin(last_step_file);
-  string line;
-
-  vector<vector<double>> chain_value;
-
-  while (getline(fin, line))
-    {
-      stringstream ss(line);
-      double NUM;
-      vector<double> ll, params;
-
-      while (ss>>NUM) ll.push_back(NUM);
-      for (size_t i=1; i<ll.size()-3; i++)
-	params.push_back(ll[i]);
-
-      chain_value.push_back(params);
-    }
-  fin.clear(); fin.close();
-
-  string rm_last_step = "rm -r "+last_step_file;
-  if (system(rm_last_step.c_str())) {}
-
-  checkDim(chain_value, n_walkers, m_model_parameters->nparameters(), "chain_from_LastStep_file");
-  chain_value = cbl::transpose(chain_value);
-
-  initialize_chains(chain_size, chain_value);
 }
 
 
@@ -379,6 +368,12 @@ double cbl::statistics::CombinedPosterior::operator () (std::vector<double> &pp)
   }
   return val;
 }
+
+// ============================================================================================
+
+
+
+
 
 // ============================================================================================
 
@@ -464,7 +459,6 @@ void cbl::statistics::CombinedPosterior::maximize (const std::vector<double> sta
     m_model_Parameters[N]->write_bestfit_info();
   }
 
-  m_model_parameters = m_model_parameters;
   m_model_parameters->set_bestfit_values(result);
   m_model_parameters->write_bestfit_info();
 
@@ -476,11 +470,52 @@ void cbl::statistics::CombinedPosterior::maximize (const std::vector<double> sta
 // ============================================================================================
 
 
+void cbl::statistics::CombinedPosterior::show_results (const int start, const int thin, const int nbins, const bool show_mode, const int ns, const int nb)
+{
+  if(!impsampling) Posterior::show_results(start, thin, nbins, show_mode, ns, nb);
+  else{
+    for (int i=0; i<m_Nparameters; i++){
+      coutCBL << "Parameter: " << par::col_yellow << this->parameters()->name(i) << par::col_default << endl;
+      coutCBL << "Weighted Average: " << cbl::Average(m_parameters[i], m_weight) << endl;
+      coutCBL << "Standard Deviation: " << cbl::Sigma(m_parameters[i]) << endl << endl;
+    }
+  }
+}
+// ============================================================================================
+
+
 void cbl::statistics::CombinedPosterior::write_results (const string output_dir, const string root_file, const int start, const int thin, const int nbins, const bool fits, const bool compute_mode, const int ns, const int nb)
 {
-  const string extension = (fits) ? "_chain.fits" : "_chain.dat";
-  write_chain(output_dir, root_file+extension, start, thin, fits);
-  m_model_parameters->write_results(output_dir, root_file, start, thin, nbins, m_generate_seed(), compute_mode, ns, nb, weight(start, thin));
+  if(!impsampling){
+    const string extension = (fits) ? "_chain.fits" : "_chain.dat";
+    write_chain(output_dir, root_file+extension, start, thin, fits);
+    m_model_parameters->write_results(output_dir, root_file, start, thin, nbins, m_generate_seed(), compute_mode, ns, nb, weight(start, thin));
+  }
+  else {
+    string file = output_dir+root_file+"_chain.dat";
+    ofstream fout(file.c_str()); checkIO(fout, file);
+
+    fout << "# step" << setw(25);
+    for (int k=0; k<m_Nparameters; k++){
+      fout << this->parameters()->name(k) << setw(25);
+    }
+    fout << "log(Posterior)" << setw(25) << "Weight" << endl;
+
+    fout << std::fixed;
+    fout << setprecision(7);
+
+    for(size_t ii=0; ii<m_weight.size(); ii++)
+    {
+      fout << ii;
+      for(int N=0; N<m_Nparameters; N++){
+        fout << setw(25) << std::fixed << m_parameters[N][ii];
+      }
+      fout << setw(25) << std::fixed << m_log_posterior[ii] << setw(25) << std::scientific << m_weight[ii] << endl;
+    }
+    fout.clear(); fout.close();
+
+    coutCBL << "I wrote the file: " << file << endl;
+  }
 }
 
 
@@ -666,4 +701,48 @@ void cbl::statistics::CombinedPosterior::write_maximization_results (const std::
 
   fout.clear(); fout.close();
   coutCBL << "I wrote the file " << dir_output+file << endl;
+}
+
+
+// ============================================================================================
+
+
+std::vector<std::vector<double>> cbl::statistics::CombinedPosterior::read(const std::string path, const std::string filename)
+{
+
+    coutCBL << "Reading " << path+filename << ".." << endl;
+    std::vector< std::vector<double>> table;
+    std::fstream ifs;
+
+    ifs.open(path+filename);
+
+    while (true)
+    {
+        std::string line;
+        double buf;
+        getline(ifs, line);
+
+        std::stringstream ss(line, std::ios_base::out|std::ios_base::in|std::ios_base::binary);
+
+        if (!ifs)
+            // mainly catch EOF
+            break;
+
+        if (line[0] == '#' || line.empty())
+            // catch empty lines or comment lines
+            continue;
+
+
+        std::vector<double> row;
+
+        while (ss >> buf)
+            row.push_back(buf);
+
+        table.push_back(row);
+
+    }
+
+    ifs.close();
+
+    return table;
 }
