@@ -204,18 +204,7 @@ namespace cbl {
    * @param nwalkers the number of parallal walkers for the chain
    *
    */
-  void importance_sampling(const std::string output_path, const std::string model_nameA, const std::string model_nameB, const std::vector<double> start, const int chain_size, const int nwalkers, const int burn_in=0, const int thin=1);
-
-
-  /**
-   * @brief write parameters, logposteriors and weights to an output file
-   *
-   * @param output_dir the output file path
-   *
-   * @param output_file the ouput file name
-   *
-   */
-  void write_chains(const std::string output_dir, const std::string output_file);
+  void importance_sampling(const std::string output_path, const std::string model_nameA, const std::string model_nameB, const std::vector<double> start, const int chain_size, const int nwalkers, const int burn_in, const int thin);
 
 	/**
 	 * @brief initialize the chains in a ball around the posterior

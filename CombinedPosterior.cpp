@@ -49,7 +49,6 @@ cbl::statistics::CombinedPosterior::CombinedPosterior (const std::vector<std::sh
 
   m_posteriors = posteriors;
   m_Nposteriors = m_posteriors.size();
-  int n_ext_chains = 0;
   std::vector<bool> is_from_chain(m_Nposteriors);
 
   // eventualmente dentro una funzione che controlla e setta is_from_chain
@@ -59,6 +58,7 @@ cbl::statistics::CombinedPosterior::CombinedPosterior (const std::vector<std::sh
 
   if(std::find(is_from_chain.begin(), is_from_chain.end(), false) == is_from_chain.end())   // All false
     set_all();
+
   else if (std::find(is_from_chain.begin(), is_from_chain.end(), true) == is_from_chain.end()) // All true
   {
     impsampling = true;
@@ -70,33 +70,15 @@ cbl::statistics::CombinedPosterior::CombinedPosterior (const std::vector<std::sh
   }
 
   // at least one is false
-  else {
-    coutCBL << "Different kind of Posterior objects given as input!" << endl;
-
-      if(m_Nposteriors>2) ErrorCBL("Not yet implemented with more than 2 mixed probes", "CombinedPosterior", "CombinedPosterior.cpp");
-
-    m_log_posteriors.resize(n_ext_chains);
-
-    for(int N=0; N<m_Nposteriors; N++)
-      if(!is_from_chain[N]){
-        m_Nparameters = m_posteriors[N]->get_Nparameters();
-        m_model_parameters = m_posteriors[N]->get_model_parameters();
-        m_log_posterior = m_posteriors[N]->get_log_posterior();
-      }
-      else
-      {
-        m_seeds[N] = m_posteriors[N]->m_get_seed();
-        m_use_grid[N] = m_posteriors[N]->get_m_use_grid();
-
-      }
-}
+  else
+    ErrorCBL("Different kind of Posterior objects given as input!", "CombinedPosterior", "CombinedPosterior.cpp");
 }
 
 
 // ============================================================================================
 
 
-void cbl::statistics::CombinedPosterior::set_all()
+void cbl::statistics::CombinedPosterior::set_all ()
 {
   m_seeds.resize(m_Nposteriors);
   m_use_grid.resize(m_Nposteriors);
@@ -137,7 +119,7 @@ void cbl::statistics::CombinedPosterior::set_all()
 // ============================================================================================
 
 
-void cbl::statistics::CombinedPosterior::set_parameters(const std::vector<std::vector<double>> parametersA, const std::vector<std::vector<double>> parametersB)
+void cbl::statistics::CombinedPosterior::set_parameters (const std::vector<std::vector<double>> parametersA, const std::vector<std::vector<double>> parametersB)
 {
   std::vector<std::vector<double>> parameters (m_Nparameters);
   for(int N=0; N<m_Nparameters; N++){
@@ -152,7 +134,7 @@ void cbl::statistics::CombinedPosterior::set_parameters(const std::vector<std::v
 // ============================================================================================
 
 
-void cbl::statistics::CombinedPosterior::set_log_posterior(const std::vector<double> logpostA, const std::vector<double> logpostB)
+void cbl::statistics::CombinedPosterior::set_log_posterior (const std::vector<double> logpostA, const std::vector<double> logpostB)
 {
   m_log_posterior.reserve(logpostA.size() + logpostB.size()); // preallocate memory
   m_log_posterior.insert(m_log_posterior.end(), logpostA.begin(), logpostA.end());
@@ -162,7 +144,7 @@ void cbl::statistics::CombinedPosterior::set_log_posterior(const std::vector<dou
 
 // ============================================================================================
 
-void cbl::statistics::CombinedPosterior::set_weight(const std::vector<double> weightsA, const std::vector<double> weightsB)
+void cbl::statistics::CombinedPosterior::set_weight (const std::vector<double> weightsA, const std::vector<double> weightsB)
 {
 
   m_weight.reserve(weightsA.size() + weightsB.size()); // preallocate memory
@@ -173,9 +155,8 @@ void cbl::statistics::CombinedPosterior::set_weight(const std::vector<double> we
 
 // ============================================================================================
 
-void cbl::statistics::CombinedPosterior::importance_sampling(const int distNum, const double cell_size, const double rMAX, const double cut_sigma)
+void cbl::statistics::CombinedPosterior::importance_sampling (const int distNum, const double cell_size, const double rMAX, const double cut_sigma)
 {
-
   std::vector<std::vector<double>> parametersA = m_posteriors[0]->get_parameters();
   std::vector<std::vector<double>> parametersB = m_posteriors[1]->get_parameters();
   std::vector<double> logpostA = m_posteriors[0]->get_log_posterior();
@@ -219,17 +200,17 @@ void cbl::statistics::CombinedPosterior::importance_sampling(const int distNum, 
  }
 
   set_weight(weights_A, weights_B);
-
 }
 
 
 // ============================================================================================
 
 
-void cbl::statistics::CombinedPosterior::importance_sampling(const std::string output_path, const std::string model_nameA, const std::string model_nameB, const std::vector<double> start, const int chain_size, const int nwalkers, const int burn_in, const int thin){
-
+void cbl::statistics::CombinedPosterior::importance_sampling (const std::string output_path, const std::string model_nameA, const std::string model_nameB, const std::vector<double> start, const int chain_size, const int nwalkers, const int burn_in, const int thin)
+{
   if(m_Nposteriors != 2) ErrorCBL("You can't do importance sampling for a number of probes > 2", "importance_sampling", "CombinedPosterior.cpp");
 
+  impsampling = true;
   std::vector<std::string> modelnames(m_Nposteriors);
   modelnames[0] = model_nameA;
   modelnames[1] = model_nameB;
@@ -241,34 +222,28 @@ void cbl::statistics::CombinedPosterior::importance_sampling(const std::string o
     m_posteriors[N]->initialize_chains(chain_size, nwalkers, 1.e-5, start);
     coutCBL << "Sampling the posterior distribution for " << modelnames[N] << endl << endl;
     m_posteriors[N]->sample_stretch_move(2);
-    m_posteriors[N]->write_results(output_path, modelnames[N]);
-    coutCBL << endl;
-    cout << "Showing results for " << modelnames[N] << endl << endl;
-    m_posteriors[N]->show_results(burn_in, thin);
-    std::cout << endl << endl;
+    m_posteriors[N]->write_results(output_path, modelnames[N], burn_in, thin);
+    cout << endl;
   }
 
-  coutCBL << "Do the importance sampling for " << modelnames[0] << "_post_" << modelnames[1] << ".." << endl;
+  coutCBL << "Doing importance sampling for " << modelnames[0] << "_post_" << modelnames[1] << ".." << endl;
   m_posteriors[0]->importance_sampling(output_path, modelnames[1]+"_chain.dat");
-  coutCBL << "Showing results of the importance sampling.." << endl;
-  m_posteriors[0]->show_results(burn_in, thin);
   m_posteriors[0]->write_results(output_path, file_AB);
-  coutCBL << "Do the importance sampling for " << modelnames[1] << "_post_" << modelnames[0] << ".." << endl;
+  cout << endl;
+  coutCBL << "Doing importance sampling for " << modelnames[1] << "_post_" << modelnames[0] << ".." << endl;
   m_posteriors[1]->importance_sampling(output_path, modelnames[0]+"_chain.dat");
-  coutCBL << "Showing results of the importance sampling.." << endl;
   m_posteriors[1]->write_results(output_path, file_BA);
-  m_posteriors[1]->show_results(burn_in, thin);
 
   std::vector<std::vector<double>> chainA;
   std::vector<std::vector<double>> chainB;
-  std::vector<double> weightsAB = m_posteriors[0]->weight();
-  std::vector<double> weightsBA = m_posteriors[1]->weight();
-
-  std::vector<std::vector<double>> parametersA (m_Nparameters, std::vector<double> (chain_size*nwalkers));
-  std::vector<std::vector<double>> parametersB (m_Nparameters, std::vector<double> (chain_size*nwalkers));
 
   chainA = read(output_path, file_AB+"_chain.dat");
   chainB = read(output_path, file_BA+"_chain.dat");
+
+  std::vector<std::vector<double>> parametersA (m_Nparameters, std::vector<double> (chainA.size()));
+  std::vector<std::vector<double>> parametersB (m_Nparameters, std::vector<double> (chainB.size()));
+  std::vector<double> weightsAB = m_posteriors[0]->weight();
+  std::vector<double> weightsBA = m_posteriors[1]->weight();
 
   for(int N=1; N<m_Nparameters+1; N++){
     for(size_t ii=0; ii<chainA.size(); ii++){
@@ -280,9 +255,6 @@ void cbl::statistics::CombinedPosterior::importance_sampling(const std::string o
   set_log_posterior(m_posteriors[0]->get_log_posterior(), m_posteriors[1]->get_log_posterior());
   set_parameters(parametersA, parametersB);
   set_weight(weightsAB, weightsBA);
-
-  impsampling = true;
-
 }
 
 
@@ -369,11 +341,6 @@ double cbl::statistics::CombinedPosterior::operator () (std::vector<double> &pp)
   return val;
 }
 
-// ============================================================================================
-
-
-
-
 
 // ============================================================================================
 
@@ -456,7 +423,7 @@ void cbl::statistics::CombinedPosterior::maximize (const std::vector<double> sta
   for(int N=0; N<m_Nposteriors; N++)
   {
     m_model_Parameters[N]->set_bestfit_values(result);
-    m_model_Parameters[N]->write_bestfit_info();
+    //m_model_Parameters[N]->write_bestfit_info();
   }
 
   m_model_parameters->set_bestfit_values(result);
@@ -707,10 +674,8 @@ void cbl::statistics::CombinedPosterior::write_maximization_results (const std::
 // ============================================================================================
 
 
-std::vector<std::vector<double>> cbl::statistics::CombinedPosterior::read(const std::string path, const std::string filename)
+std::vector<std::vector<double>> cbl::statistics::CombinedPosterior::read (const std::string path, const std::string filename)
 {
-
-    coutCBL << "Reading " << path+filename << ".." << endl;
     std::vector< std::vector<double>> table;
     std::fstream ifs;
 
